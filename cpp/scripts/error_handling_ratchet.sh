@@ -38,9 +38,16 @@
 #   - a count went DOWN -> good; record the burn-down in the same PR:
 #                            cpp/scripts/error_handling_ratchet.sh update
 #
+# `check` alone cannot stop a PR from raising the baseline: an author can add a
+# throw, rerun `update`, and baseline + source move up in lockstep. CI therefore
+# also runs `check-no-raise` against the BASE BRANCH's baseline, which rejects
+# any per-category/per-file count that is higher than what the base branch
+# records (new files with violations count as an increase from 0).
+#
 # Usage:
-#   error_handling_ratchet.sh check    # (default) diff against the baseline
-#   error_handling_ratchet.sh update   # regenerate the baseline
+#   error_handling_ratchet.sh check                  # (default) diff against the baseline
+#   error_handling_ratchet.sh update                 # regenerate the baseline
+#   error_handling_ratchet.sh check-no-raise <tsv>   # fail if any count exceeds <tsv>
 
 set -euo pipefail
 
@@ -94,8 +101,35 @@ case "$MODE" in
       exit 1
     fi
     ;;
+  check-no-raise)
+    REF="${2:-}"
+    if [ -z "$REF" ] || [ ! -f "$REF" ]; then
+      echo "usage: $0 check-no-raise <reference-baseline.tsv>" >&2
+      exit 2
+    fi
+    current="$(mktemp)"
+    trap 'rm -f "$current"' EXIT
+    collect > "$current"
+    raised=$(awk -F'\t' '
+      NR==FNR { ref[$1 FS $2] = $3; next }
+      { base = (($1 FS $2) in ref) ? ref[$1 FS $2] : 0
+        if ($3 > base) printf "  %s\t%s\t%d -> %d\n", $1, $2, base, $3 }
+    ' "$REF" "$current")
+    if [ -n "$raised" ]; then
+      echo "error-handling ratchet: counts increased relative to $REF" >&2
+      echo >&2
+      echo "$raised" >&2
+      echo >&2
+      echo "New abort/throw sites were added to library code (moving existing" >&2
+      echo "sites into another file counts too). Return arrow::Status/arrow::Result" >&2
+      echo "instead (tag with ExtendStatusDetail where classification matters);" >&2
+      echo "the baseline is not to be raised." >&2
+      exit 1
+    fi
+    echo "error-handling ratchet: no counts raised relative to $REF"
+    ;;
   *)
-    echo "usage: $0 [check|update]" >&2
+    echo "usage: $0 [check|update|check-no-raise <reference-baseline.tsv>]" >&2
     exit 2
     ;;
 esac

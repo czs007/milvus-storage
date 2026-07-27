@@ -22,3 +22,18 @@ jobs:
 
       - name: error-handling ratchet
         run: bash cpp/scripts/error_handling_ratchet.sh check
+
+      # `check` only proves the PR's baseline matches its own source; it cannot
+      # tell whether the PR raised the baseline. Compare against the base
+      # branch's baseline and reject any per-category/per-file count increase.
+      - name: error-handling ratchet (no raise vs base branch)
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          git fetch --depth=1 origin "$BASE_REF"
+          if git show FETCH_HEAD:cpp/scripts/error_handling_baseline.tsv > /tmp/base_baseline.tsv 2>/dev/null; then
+            bash cpp/scripts/error_handling_ratchet.sh check-no-raise /tmp/base_baseline.tsv
+          else
+            echo "base branch has no baseline yet; skipping no-raise gate"
+          fi
