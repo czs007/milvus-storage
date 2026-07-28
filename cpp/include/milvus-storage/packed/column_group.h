@@ -45,16 +45,22 @@ class ColumnGroup {
 
   arrow::Status Merge(const ColumnGroup& other);
 
-  /// Merge all batches into one table. Source-compat note: this returns
-  /// arrow::Result since the abort/throw cleanup (the previous signature
-  /// threw std::runtime_error on merge failure). Schema consistency across
+  /// Preferred entry point: merge all batches into one table, reporting a
+  /// merge failure as a status instead of throwing. Schema consistency across
   /// batches is validated here (by Table::FromRecordBatches), not in
   /// AddRecordBatch.
-  arrow::Result<std::shared_ptr<arrow::Table>> Table() const;
+  arrow::Result<std::shared_ptr<arrow::Table>> TryTable() const;
+
+  /// Deprecated in favor of TryTable(): a failed merge THROWS
+  /// std::runtime_error with the stringified status, destroying its
+  /// classification. Kept with the pre-existing signature -- and therefore the
+  /// pre-existing ABI symbol -- only until direct-link consumers migrate; do
+  /// not add new call sites.
+  std::shared_ptr<arrow::Table> Table() const;
 
   /// Schema of the group's batches: the first batch's schema, or nullptr for
   /// an empty group. Does NOT validate that later batches match -- callers
-  /// needing validation should go through Table().
+  /// needing validation should go through TryTable().
   std::shared_ptr<arrow::Schema> Schema() const;
 
   std::shared_ptr<arrow::RecordBatch> GetRecordBatch(size_t index) const;

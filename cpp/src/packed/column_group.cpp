@@ -17,6 +17,7 @@
 #include "milvus-storage/common/extend_status.h"
 #include <arrow/table.h>
 #include <arrow/status.h>
+#include <stdexcept>
 
 namespace milvus_storage {
 
@@ -61,7 +62,7 @@ arrow::Status ColumnGroup::Merge(const ColumnGroup& other) {
   return arrow::Status::OK();
 }
 
-arrow::Result<std::shared_ptr<arrow::Table>> ColumnGroup::Table() const {
+arrow::Result<std::shared_ptr<arrow::Table>> ColumnGroup::TryTable() const {
   auto result = arrow::Table::FromRecordBatches(batches_);
   if (!result.ok()) {
     // The status used to be stringified into a runtime_error here, destroying
@@ -70,6 +71,14 @@ arrow::Result<std::shared_ptr<arrow::Table>> ColumnGroup::Table() const {
                            result.status());
   }
   return result;
+}
+
+std::shared_ptr<arrow::Table> ColumnGroup::Table() const {
+  auto result = TryTable();
+  if (!result.ok()) {
+    throw std::runtime_error(result.status().ToString());
+  }
+  return result.MoveValueUnsafe();
 }
 
 std::shared_ptr<arrow::Schema> ColumnGroup::Schema() const {
