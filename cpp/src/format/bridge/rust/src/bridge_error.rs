@@ -77,6 +77,38 @@ impl std::error::Error for BridgeError {}
 /// impls below.
 pub type BridgeResult<T> = std::result::Result<T, BridgeError>;
 
+/// Walk the `source()` chain looking for a typed [`object_store::Error`].
+/// Lance boxes the object_store error directly today, but other layers can
+/// sit in between, and a single-level `downcast_ref` on the top of the chain
+/// would silently classify nothing.
+fn find_object_store_error<'a>(
+    root: &'a (dyn std::error::Error + 'static),
+) -> Option<&'a object_store::Error> {
+    let mut current: Option<&(dyn std::error::Error + 'static)> = Some(root);
+    while let Some(err) = current {
+        if let Some(os_err) = err.downcast_ref::<object_store::Error>() {
+            return Some(os_err);
+        }
+        current = err.source();
+    }
+    None
+}
+
+/// Positively identify rate-limiting/throttling from rendered error text.
+/// Matches only the fixed strings object_store's retry layer and the S3/GCS
+/// throttle responses actually emit ("status code: 429", "SlowDown", ...);
+/// anything else returns `None` (never invent retriability).
+fn classify_throttling_message(msg: &str) -> Option<i32> {
+    let msg = msg.to_ascii_lowercase();
+    let throttled = msg.contains("status code: 429")
+        || msg.contains("status code: 503")
+        || msg.contains("too many requests")
+        || msg.contains("service unavailable")
+        || msg.contains("slowdown")
+        || msg.contains("throttl");
+    throttled.then_some(LOON_TRANSIENT_THROTTLING)
+}
+
 /// Classify a `lance::Error` into a marker code. `None` = not positively
 /// identified -> stays untagged -> conservative non-retriable fallback on the
 /// consumer side.
@@ -103,8 +135,10 @@ pub fn classify_lance_error(e: &LanceError) -> Option<i32> {
             Some(LOON_TRANSIENT_THROTTLING)
         }
         // IO wraps the underlying object_store error as a boxed source;
-        // downcast to recover the typed variant.
-        LanceError::IO { source, .. } => match source.downcast_ref::<object_store::Error>() {
+        // downcast to recover the typed variant. The downcast walks the whole
+        // source() chain: lance may box the object_store error behind extra
+        // layers, and a single-level downcast_ref would silently miss it.
+        LanceError::IO { source, .. } => match find_object_store_error(source.as_ref()) {
             Some(object_store::Error::NotFound { .. }) => Some(LOON_FILE_NOT_FOUND),
             Some(
                 object_store::Error::PermissionDenied { .. }
@@ -117,10 +151,23 @@ pub fn classify_lance_error(e: &LanceError) -> Option<i32> {
                 object_store::Error::NotSupported { .. }
                 | object_store::Error::NotImplemented { .. },
             ) => Some(BRIDGE_ERRCODE_NOT_SUPPORTED),
-            // Generic and friends: object_store has already spent its own
-            // retry budget; no positive transient/permanent signal survives,
-            // so stay untagged (conservative).
-            _ => None,
+            // object_store's retry layer folds retry-exhausted 429/503 (and
+            // S3 `SlowDown` bodies) into Generic. Its RetryError source type
+            // is pub(crate) — no typed downcast is possible — but throttling
+            // is still a recoverable signal for the caller's longer-horizon
+            // retry policy, so recover it from the rendered text.
+            Some(object_store::Error::Generic { source, .. }) => {
+                classify_throttling_message(&source.to_string())
+            }
+            // Other typed variants carry no positive transient/permanent
+            // signal, so stay untagged (conservative).
+            Some(_) => None,
+            // No typed object_store error anywhere in the chain — either an
+            // opaque wrapper, or an object_store version skew between this
+            // crate and lance making every downcast fail. Fall back to the
+            // rendered text so a genuine rate-limit keeps its retryable tag
+            // instead of silently degrading to the non-retriable bucket.
+            None => classify_throttling_message(&source.to_string()),
         },
         // InvalidInput deliberately NOT tagged as caller input: the strings we
         // feed lance are mostly assembled by this library itself, so blaming
@@ -145,5 +192,83 @@ impl From<arrow58::error::ArrowError> for BridgeError {
             code: None,
             msg: e.to_string(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn generic_os_error(msg: &str) -> object_store::Error {
+        object_store::Error::Generic {
+            store: "S3",
+            source: msg.to_string().into(),
+        }
+    }
+
+    #[test]
+    fn retry_exhausted_429_is_tagged_transient_throttling() {
+        let e = LanceError::from(generic_os_error(
+            "Error performing GET https://bucket/key in 90s, after 10 retries, \
+             max_retries: 10, retry_timeout: 180s  - Server returned non-2xx \
+             status code: 429 Too Many Requests: rate exceeded",
+        ));
+        assert_eq!(classify_lance_error(&e), Some(LOON_TRANSIENT_THROTTLING));
+    }
+
+    #[test]
+    fn s3_slowdown_body_is_tagged_transient_throttling() {
+        let e = LanceError::from(generic_os_error(
+            "Server returned error response: <?xml version=\"1.0\"?><Error>\
+             <Code>SlowDown</Code><Message>Please reduce your request rate.</Message></Error>",
+        ));
+        assert_eq!(classify_lance_error(&e), Some(LOON_TRANSIENT_THROTTLING));
+    }
+
+    #[test]
+    fn generic_without_throttle_signal_stays_untagged() {
+        let e = LanceError::from(generic_os_error("connection reset by peer"));
+        assert_eq!(classify_lance_error(&e), None);
+    }
+
+    #[test]
+    fn typed_not_found_found_through_wrapping_layers() {
+        #[derive(Debug)]
+        struct Wrapper(object_store::Error);
+        impl std::fmt::Display for Wrapper {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(f, "wrapped: {}", self.0)
+            }
+        }
+        impl std::error::Error for Wrapper {
+            fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+                Some(&self.0)
+            }
+        }
+        let os_err = object_store::Error::NotFound {
+            path: "bucket/key".into(),
+            source: "object gone".to_string().into(),
+        };
+        let e = LanceError::io_source(Box::new(Wrapper(os_err)));
+        assert_eq!(classify_lance_error(&e), Some(LOON_FILE_NOT_FOUND));
+    }
+
+    #[test]
+    fn downcast_failure_falls_back_to_throttle_text() {
+        // Source is not an object_store::Error at all (models an opaque
+        // wrapper or a version-skewed object_store type): the rendered text
+        // still carries the rate-limit evidence.
+        let e = LanceError::io_source(
+            "Server returned non-2xx status code: 503 Service Unavailable"
+                .to_string()
+                .into(),
+        );
+        assert_eq!(classify_lance_error(&e), Some(LOON_TRANSIENT_THROTTLING));
+    }
+
+    #[test]
+    fn downcast_failure_without_signal_stays_untagged() {
+        let e = LanceError::io_source("disk quota exceeded".to_string().into());
+        assert_eq!(classify_lance_error(&e), None);
     }
 }
