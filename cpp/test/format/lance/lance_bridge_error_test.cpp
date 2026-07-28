@@ -96,11 +96,31 @@ TEST(BridgeErrorTest, TranslatePreservesClassificationAndAddsContext) {
   EXPECT_EQ(decoded.message().find("__LOON_"), std::string::npos);
 }
 
+TEST(BridgeErrorTest, TranslateDecodesMarkedNonIOErrorStatuses) {
+  // Mid-scan bridge errors cross the arrow-rs FFI stream boundary as
+  // ExternalError, which the C ABI maps to EINVAL and arrow C++ imports as
+  // Status::Invalid -- the marker in the message, not the StatusCode, is what
+  // identifies a bridge-encoded carrier. A throttling code must come back
+  // retryable instead of collapsing into a permanent Invalid.
+  auto throttled = TranslateBridgeStatus("stream", arrow::Status::Invalid(std::string(kMarker) + "109; s3 throttled"));
+  auto detail = ExtendStatusDetail::UnwrapStatus(throttled);
+  ASSERT_NE(detail, nullptr) << throttled.ToString();
+  EXPECT_EQ(detail->code(), ExtendStatusCode::StorageTransientThrottling);
+  EXPECT_TRUE(detail->retryable());
+  EXPECT_EQ(throttled.message().find("__LOON_"), std::string::npos) << throttled.ToString();
+  EXPECT_EQ(ToSegcoreError(throttled).get_error_code(), milvus::StorageTransientError);
+
+  auto vanished =
+      TranslateBridgeStatus("stream", arrow::Status::Invalid(std::string(kMarker) + "12; object vanished mid-scan"));
+  EXPECT_EQ(arrow::internal::ErrnoFromStatus(vanished), ENOENT) << vanished.ToString();
+  EXPECT_EQ(ToSegcoreError(vanished).get_error_code(), milvus::ObjectNotExist);
+}
+
 TEST(BridgeErrorTest, TranslateDoesNotDowngradeNonIOErrorStatuses) {
-  // Bridge errors only travel as IOError strings; statuses arrow itself
-  // produced (Invalid / OutOfMemory from ImportChunkedArray etc.) must pass
-  // through with their StatusCode intact -- re-decoding them would downgrade
-  // OOM (retriable 2034) into StorageError (non-retriable 2044).
+  // Statuses arrow itself produced (Invalid / OutOfMemory from
+  // ImportChunkedArray etc.) carry no marker and must pass through with their
+  // StatusCode intact -- re-decoding them would downgrade OOM (retriable 2034)
+  // into StorageError (non-retriable 2044).
   auto invalid = TranslateBridgeStatus("ctx", arrow::Status::Invalid("bad schema"));
   EXPECT_TRUE(invalid.IsInvalid()) << invalid.ToString();
 

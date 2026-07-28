@@ -139,11 +139,14 @@ arrow::Status TranslateBridgeStatus(std::string_view context, const arrow::Statu
     return status;
   }
   if (ExtendStatusDetail::UnwrapStatus(status) || arrow::internal::ErrnoFromStatus(status) == ENOENT ||
-      !status.IsIOError()) {
-    // Already structured, or not a bridge-encoded carrier at all: bridge
-    // errors only ever surface as IOError strings (arrow FFI stringification),
-    // so re-decoding e.g. an Invalid or OutOfMemory from arrow itself would
-    // DOWNGRADE its StatusCode to IOError. Pass those through untouched.
+      status.message().find(kBridgeErrCodeMarker) == std::string_view::npos) {
+    // Already structured, or no bridge marker in the message: only a
+    // marker-tagged message is a bridge-encoded carrier. The StatusCode alone
+    // cannot identify one -- arrow-rs FFI streams surface mid-scan bridge
+    // errors as ExternalError -> EINVAL -> Status::Invalid, not IOError.
+    // Statuses arrow itself produced (Invalid / OutOfMemory from
+    // ImportChunkedArray etc.) carry no marker and pass through untouched, so
+    // their StatusCode is never downgraded by re-decoding.
     return WithBridgeContext(context, status);
   }
   return WithBridgeContext(context, MakeBridgeErrorStatus(status.message()));
