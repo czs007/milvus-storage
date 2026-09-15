@@ -79,7 +79,7 @@ arrow::Status VortexFileWriter::WriteImpl(const std::shared_ptr<arrow::RecordBat
   auto status = vx_writer_->Write(exported_schema, exported_array);
   if (!status.ok()) {
     closed_ = true;
-    return MakeVortexErrorStatus("Failed to write Vortex file", status);
+    return MakeBridgeErrorStatus("Failed to write Vortex file", status);
   }
   wrote_batch_ = true;
   written_rows_ += batch->num_rows();
@@ -101,7 +101,7 @@ arrow::Status VortexFileWriter::FlushImpl() {
   auto status = vx_writer_->Flush();
   if (!status.ok()) {
     closed_ = true;
-    return MakeVortexErrorStatus("Failed to flush Vortex file", status);
+    return MakeBridgeErrorStatus("Failed to flush Vortex file", status);
   }
   return arrow::Status::OK();
 }
@@ -169,7 +169,7 @@ arrow::Result<api::ColumnGroupFile> VortexFileWriter::CloseImpl() {
   auto summary_result = vx_writer_->Close();
   if (!summary_result.ok()) {
     closed_ = true;
-    return MakeVortexErrorStatus("Failed to close Vortex file", summary_result.status());
+    return MakeBridgeErrorStatus("Failed to close Vortex file", summary_result.status());
   }
   auto summary = summary_result.ValueOrDie();
   closed_ = true;

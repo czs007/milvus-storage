@@ -394,7 +394,7 @@ static void test_exttable_explore_rejects_null_column(void) {
 }
 
 static void test_exttable_explore_invalid_iceberg_snapshot_id(void) {
-  const char* keys[] = {"iceberg.snapshot_id"};
+  const char* keys[] = {"reader.exttable.snapshot_id"};
   const char* vals[] = {"123junk"};
   const char* columns[] = {"int64_field"};
   LoonProperties properties;
@@ -406,10 +406,11 @@ static void test_exttable_explore_invalid_iceberg_snapshot_id(void) {
   loon_ffi_free_result(&rc);
 
   rc = loon_exttable_explore(columns, 1, "iceberg-table", "base", "source", &properties, &num_files, &manifest_path);
-  ck_assert_int_eq(rc.err_code, loon_errcode_user_invalid_argument);
-  ck_assert_int_eq(loon_ffi_error_category(rc.err_code), loon_error_category_user);
+  // The snapshot id is a typed (int64) property: a value that does not parse is
+  // rejected by the property registry before any source is touched.
+  ck_assert_int_eq(rc.err_code, loon_errcode_invalid_properties);
   ck_assert(!loon_ffi_is_retryable_errcode(rc.err_code));
-  ck_assert_msg(strstr(loon_ffi_get_errmsg(&rc), "iceberg.snapshot_id") != NULL,
+  ck_assert_msg(strstr(loon_ffi_get_errmsg(&rc), "reader.exttable.snapshot_id") != NULL,
                 "expected snapshot-id validation, got: %s", loon_ffi_get_errmsg(&rc));
   loon_ffi_free_result(&rc);
   loon_properties_free(&properties);
@@ -566,7 +567,7 @@ static void test_column_groups_create(void) {
     int64_t start_indices[] = {0};
     int64_t end_indices[] = {file1_row_count};
 
-    rc = loon_column_groups_create((const char**)columns, 3, "parquet", paths, start_indices, end_indices, 1,
+    rc = loon_column_groups_create((const char**)columns, 3, "parquet", paths, start_indices, end_indices, NULL, 1,
                                    &column_groups);
 
     ck_assert_msg(loon_ffi_is_success(&rc), "%s", loon_ffi_get_errmsg(&rc));
@@ -583,7 +584,7 @@ static void test_column_groups_create(void) {
     int64_t start_indices[] = {0, 0};
     int64_t end_indices[] = {file1_row_count, file2_row_count};
 
-    rc = loon_column_groups_create((const char**)columns, 2, "parquet", paths, start_indices, end_indices, 2,
+    rc = loon_column_groups_create((const char**)columns, 2, "parquet", paths, start_indices, end_indices, NULL, 2,
                                    &column_groups);
 
     ck_assert_msg(loon_ffi_is_success(&rc), "%s", loon_ffi_get_errmsg(&rc));
@@ -599,7 +600,7 @@ static void test_column_groups_create(void) {
     int64_t start_indices[] = {0, 0};
     int64_t end_indices[] = {50, 25};
 
-    rc = loon_column_groups_create((const char**)columns, 3, "parquet", paths, start_indices, end_indices, 2,
+    rc = loon_column_groups_create((const char**)columns, 3, "parquet", paths, start_indices, end_indices, NULL, 2,
                                    &column_groups);
 
     ck_assert_msg(loon_ffi_is_success(&rc), "%s", loon_ffi_get_errmsg(&rc));
@@ -614,7 +615,7 @@ static void test_column_groups_create(void) {
     int64_t start_indices[] = {0};
     int64_t end_indices[] = {file1_row_count};
 
-    rc = loon_column_groups_create(NULL, 1, "parquet", paths, start_indices, end_indices, 1, &column_groups);
+    rc = loon_column_groups_create(NULL, 1, "parquet", paths, start_indices, end_indices, NULL, 1, &column_groups);
 
     ck_assert(!loon_ffi_is_success(&rc));
     ck_assert_int_eq(rc.err_code, loon_errcode_invalid_args);
@@ -630,7 +631,7 @@ static void test_column_groups_create(void) {
     int64_t end_indices[] = {file1_row_count};
 
     column_groups = NULL;
-    rc = loon_column_groups_create((const char**)columns, 1, "parquet", paths, start_indices, end_indices, 1,
+    rc = loon_column_groups_create((const char**)columns, 1, "parquet", paths, start_indices, end_indices, NULL, 1,
                                    &column_groups);
 
     ck_assert_int_eq(rc.err_code, loon_errcode_invalid_args);
@@ -644,7 +645,7 @@ static void test_column_groups_create(void) {
     int64_t start_indices[] = {0};
     int64_t end_indices[] = {file1_row_count};
 
-    rc = loon_column_groups_create((const char**)columns, 1, "parquet", NULL, start_indices, end_indices, 1,
+    rc = loon_column_groups_create((const char**)columns, 1, "parquet", NULL, start_indices, end_indices, NULL, 1,
                                    &column_groups);
 
     ck_assert(!loon_ffi_is_success(&rc));
@@ -660,8 +661,8 @@ static void test_column_groups_create(void) {
     int64_t start_indices[] = {0};
     int64_t end_indices[] = {file1_row_count};
 
-    rc =
-        loon_column_groups_create((const char**)columns, 1, NULL, paths, start_indices, end_indices, 1, &column_groups);
+    rc = loon_column_groups_create((const char**)columns, 1, NULL, paths, start_indices, end_indices, NULL, 1,
+                                   &column_groups);
 
     ck_assert(!loon_ffi_is_success(&rc));
     ck_assert_int_eq(rc.err_code, loon_errcode_invalid_args);
@@ -676,7 +677,7 @@ static void test_column_groups_create(void) {
     int64_t start_indices[] = {0};
     int64_t end_indices[] = {file1_row_count};
 
-    rc = loon_column_groups_create((const char**)columns, 0, "parquet", paths, start_indices, end_indices, 1,
+    rc = loon_column_groups_create((const char**)columns, 0, "parquet", paths, start_indices, end_indices, NULL, 1,
                                    &column_groups);
 
     ck_assert(!loon_ffi_is_success(&rc));
@@ -693,7 +694,7 @@ static void test_column_groups_create(void) {
     int64_t start_indices[] = {0};
     int64_t end_indices[] = {file1_row_count};
 
-    rc = loon_column_groups_create((const char**)columns, 1, "parquet", paths, start_indices, end_indices, 0,
+    rc = loon_column_groups_create((const char**)columns, 1, "parquet", paths, start_indices, end_indices, NULL, 0,
                                    &column_groups);
 
     ck_assert(!loon_ffi_is_success(&rc));
@@ -746,7 +747,7 @@ static void test_column_groups_create_then_read(void) {
     ck_assert_int_eq(length_of_paths, sizeof(end_indices) / sizeof(end_indices[0]));
 
     rc = loon_column_groups_create((const char**)columns, length_of_columns, "parquet", paths, start_indices,
-                                   end_indices, length_of_paths, &column_groups);
+                                   end_indices, NULL, length_of_paths, &column_groups);
 
     ck_assert_msg(loon_ffi_is_success(&rc), "%s", loon_ffi_get_errmsg(&rc));
 

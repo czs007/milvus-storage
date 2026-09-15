@@ -70,16 +70,10 @@ LoonFFIResult loon_exttable_explore(const char** columns,
     RETURN_ARROW_ERROR_IF(fmt_res.status(), LOON_USER_INVALID_ARGUMENT, fmt_res.status().ToString());
 
     if (format_str == LOON_FORMAT_ICEBERG_TABLE) {
-      auto snapshot_id = milvus_storage::api::GetValue<std::string>(properties_map, PROPERTY_ICEBERG_SNAPSHOT_ID);
+      // The snapshot id is a caller-supplied property: an unparsable value is a
+      // user error, not a source failure, so reject it before exploring.
+      auto snapshot_id = milvus_storage::api::GetValue<int64_t>(properties_map, PROPERTY_READER_EXTTABLE_SNAPSHOT_ID);
       RETURN_ARROW_ERROR_IF(snapshot_id.status(), LOON_USER_INVALID_ARGUMENT, snapshot_id.status().ToString());
-      const auto& value = snapshot_id.ValueOrDie();
-      int64_t parsed = 0;
-      const auto* begin = value.data();
-      const auto* end = begin + value.size();
-      const auto [ptr, ec] = std::from_chars(begin, end, parsed);
-      if (ec != std::errc{} || ptr != end) {
-        RETURN_ERROR(LOON_USER_INVALID_ARGUMENT, PROPERTY_ICEBERG_SNAPSHOT_ID, " must be an int64, got '", value, "'");
-      }
     }
 
     // This is an external-source exploration. Missing, denied, or unusable

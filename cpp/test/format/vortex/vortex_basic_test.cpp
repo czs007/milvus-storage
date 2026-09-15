@@ -47,9 +47,9 @@
 #include "milvus-storage/filesystem/fs.h"
 #include "milvus-storage/format/vortex/vortex_format_reader.h"
 #include "milvus-storage/format/vortex/vortex_writer.h"
-#include "bridge_error.h"
+#include "runtime/bridge_error.h"
 #include "test_env.h"
-#include "vortex_bridge.h"
+#include "vortex/vortex_bridge.h"
 
 namespace milvus_storage {
 
@@ -141,7 +141,7 @@ INSTANTIATE_TEST_SUITE_P(V1V2,
 namespace {
 
 constexpr int kDictionaryValueGroup = 3;
-constexpr const char* kMarker = "__LOON_RUST_BRIDGE_ERRCODE__=";
+constexpr const char* kMarker = "__LOON_FFI_ERRCODE__=";
 
 class FailingRecordBatchReader : public arrow::RecordBatchReader {
   public:
@@ -385,7 +385,7 @@ TEST(VortexErrorTest, MapsBridgeErrorCodesToStatusDetails) {
   EXPECT_EQ(txn_detail->code(), ExtendStatusCode::TxnExhaustedRetry);
   EXPECT_FALSE(txn_detail->retryable());
 
-  auto plain_status = MakeVortexErrorStatus("Failed to read vortex file", "decode failed");
+  auto plain_status = MakeBridgeErrorStatus("Failed to read vortex file", "decode failed");
   EXPECT_EQ(ExtendStatusDetail::UnwrapStatus(plain_status), nullptr);
   EXPECT_EQ(plain_status.code(), arrow::StatusCode::IOError);
   EXPECT_NE(plain_status.ToString().find("Failed to read vortex file: decode failed"), std::string::npos);

@@ -880,7 +880,7 @@ TEST_F(VortexLocalFormatTest, VortexInvalidTrailerFailsClosedWithoutClaimingCorr
   // not leak the internal marker.
   EXPECT_EQ(ExtendStatusDetail::UnwrapStatus(status), nullptr) << status.ToString();
   EXPECT_EQ(ToSegcoreError(status).get_error_code(), milvus::StorageError) << status.ToString();
-  EXPECT_EQ(status.ToString().find("__LOON_RUST_BRIDGE_ERRCODE__"), std::string::npos) << status.ToString();
+  EXPECT_EQ(status.ToString().find("__LOON_FFI_ERRCODE__"), std::string::npos) << status.ToString();
 }
 
 // A corrupt file must not be able to kill the process.

@@ -17,7 +17,12 @@
 // requiring a running Azure/Azurite instance.
 
 #include <gtest/gtest.h>
+#include <initializer_list>
+#include <netinet/in.h>
+#include <string>
+#include <sys/socket.h>
 #include <arrow/result.h>
+#include <arrow/util/io_util.h>
 #include <azure/storage/blobs.hpp>
 #include <azure/storage/files/datalake.hpp>
 
@@ -140,6 +145,45 @@ TEST(AzureFileSystem, AbortAfterSuccessfulClosePreservesIdempotentClose) {
   EXPECT_TRUE(statuses[0].ok()) << statuses[0].ToString();
   EXPECT_TRUE(statuses[1].ok()) << statuses[1].ToString();
   EXPECT_TRUE(statuses[2].ok()) << statuses[2].ToString();
+}
+
+TEST(AzureFileSystem, ReadOperationsReturnTransportErrors) {
+  // Reserve a loopback port without listening so connections are refused.
+  const arrow::internal::FileDescriptor socket(::socket(AF_INET, SOCK_STREAM, 0));
+  ASSERT_GE(socket.fd(), 0);
+  sockaddr_in address{};
+  address.sin_family = AF_INET;
+  address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+  ASSERT_EQ(::bind(socket.fd(), reinterpret_cast<const sockaddr*>(&address), sizeof(address)), 0);
+  socklen_t address_size = sizeof(address);
+  ASSERT_EQ(::getsockname(socket.fd(), reinterpret_cast<sockaddr*>(&address), &address_size), 0);
+
+  AzureOptions options;
+  options.account_name = "account";
+  options.blob_storage_scheme = "http";
+  options.blob_storage_authority = "127.0.0.1:" + std::to_string(ntohs(address.sin_port));
+  ASSERT_TRUE(options.ConfigureAnonymousCredential().ok());
+  const auto fs_result = AzureFileSystem::Make(options);
+  ASSERT_TRUE(fs_result.ok()) << fs_result.status();
+  const auto file_result = fs_result.ValueOrDie()->OpenInputFile("container/blob");
+  ASSERT_TRUE(file_result.ok()) << file_result.status();
+  const auto file = file_result.ValueOrDie();
+
+  for (const bool read_at : {false, true}) {
+    SCOPED_TRACE(read_at ? "ReadAt" : "GetSize");
+    EXPECT_NO_THROW({
+      char buffer = 0;
+      const auto result = read_at ? file->ReadAt(0, 1, &buffer) : file->GetSize();
+      ASSERT_FALSE(result.ok());
+      const auto detail = ExtendStatusDetail::UnwrapStatus(result.status());
+      ASSERT_NE(detail, nullptr) << result.status();
+      EXPECT_EQ(detail->code(), ExtendStatusCode::StorageTransientNetwork);
+      EXPECT_TRUE(detail->retryable());
+      EXPECT_FALSE(detail->extra_info().empty());
+      EXPECT_NE(result.status().message().find("127.0.0.1"), std::string::npos);
+    });
+  }
+  ASSERT_TRUE(file->Close().ok());
 }
 
 // ============================================================================

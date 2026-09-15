@@ -46,7 +46,7 @@ LoonFFIResult ReturnArrowError(const arrow::Status& status, int fallback) {
   RETURN_ARROW_ERROR(status, fallback, status.ToString());
 }
 
-class FailingAsyncRandomAccessFile final : public arrow::io::RandomAccessFile, public NonBlockingReadAtFile {
+class FailingAsyncRandomAccessFile final : public arrow::io::RandomAccessFile, public NonBlockingRandomAccessFile {
   public:
   explicit FailingAsyncRandomAccessFile(arrow::Status status,
                                         arrow::Status close_status = arrow::Status::OK(),
@@ -83,6 +83,7 @@ class FailingAsyncRandomAccessFile final : public arrow::io::RandomAccessFile, p
   arrow::Future<int64_t> ReadAtAsyncInto(int64_t, int64_t, uint8_t*) override {
     return arrow::Future<int64_t>::MakeFinished(status_);
   }
+  arrow::Future<int64_t> GetSizeAsync() override { return arrow::Future<int64_t>::MakeFinished(file_->GetSize()); }
   arrow::Future<std::shared_ptr<arrow::Buffer>> ReadAsync(const arrow::io::IOContext& io_context,
                                                           int64_t position,
                                                           int64_t nbytes) override {
@@ -109,7 +110,7 @@ class FixedInputFileSystem final : public arrow::fs::LocalFileSystem {
   std::shared_ptr<arrow::io::RandomAccessFile> file_;
 };
 
-class ShortAsyncRandomAccessFile final : public arrow::io::RandomAccessFile, public NonBlockingReadAtFile {
+class ShortAsyncRandomAccessFile final : public arrow::io::RandomAccessFile, public NonBlockingRandomAccessFile {
   public:
   explicit ShortAsyncRandomAccessFile(int64_t bytes_read)
       : file_(std::make_shared<arrow::io::BufferReader>("test payload")), bytes_read_(bytes_read) {}
@@ -141,6 +142,7 @@ class ShortAsyncRandomAccessFile final : public arrow::io::RandomAccessFile, pub
   arrow::Future<int64_t> ReadAtAsyncInto(int64_t, int64_t, uint8_t*) override {
     return arrow::Future<int64_t>::MakeFinished(bytes_read_);
   }
+  arrow::Future<int64_t> GetSizeAsync() override { return arrow::Future<int64_t>::MakeFinished(file_->GetSize()); }
   arrow::Future<std::shared_ptr<arrow::Buffer>> ReadAsync(const arrow::io::IOContext& io_context,
                                                           int64_t position,
                                                           int64_t nbytes) override {
@@ -242,6 +244,23 @@ TEST(FFIInternalResultTest, MapsOutOfMemoryToMemoryError) {
   // arrow-code inference.
   auto classified = MakeExtendError(ExtendStatusCode::StorageTransientThrottling, "throttled", "throttled");
   EXPECT_EQ(FFIErrorCodeFromExtendStatus(classified, LOON_ARROW_ERROR), LOON_TRANSIENT_THROTTLING);
+}
+
+TEST(FFIInternalResultTest, MapsGenericPermissionStatusToStorageAccessDenied) {
+  // An errno-channel permission failure is the same condition as an object
+  // store's access-denied answer, so it lands on the one storage code for it.
+  for (int error_number : {EACCES, EPERM}) {
+    auto status =
+        arrow::Status::IOError("permission denied").WithDetail(arrow::internal::StatusDetailFromErrno(error_number));
+    EXPECT_EQ(FFIErrorCodeFromExtendStatus(status, LOON_ARROW_ERROR), LOON_STORAGE_ACCESS_DENIED);
+    EXPECT_EQ(FFIErrorCodeFromExtendStatus(status, LOON_SOURCE_INVALID), LOON_STORAGE_ACCESS_DENIED);
+  }
+}
+
+TEST(FFIInternalResultTest, MapsNotImplementedToNotSupport) {
+  auto ffi_code =
+      FFIErrorCodeFromExtendStatus(arrow::Status::NotImplemented("unsupported operation"), LOON_ARROW_ERROR);
+  EXPECT_EQ(ffi_code, LOON_NOT_SUPPORT);
 }
 
 TEST(FFIInternalResultTest, AsyncReadCallbackPreservesExtendStatusCode) {

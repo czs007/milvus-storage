@@ -39,7 +39,7 @@
 #include "milvus-storage/filesystem/util_internal.h"
 #include "milvus-storage/format/vortex/vortex_field_layout_internal.h"
 #include "milvus-storage/format/vortex/vortex_types.h"
-#include "vortex_bridge.h"
+#include "vortex/vortex_bridge.h"
 
 namespace milvus_storage::vortex {
 
@@ -301,7 +301,7 @@ static arrow::Result<ParsedFieldUnits> ParseFieldUnits(const VortexFile& vxfile,
 
   auto raw_offsets_result = vxfile.FieldLayoutUnits(field_name);
   if (!raw_offsets_result.ok()) {
-    return MakeVortexErrorStatus(fmt::format("Failed to get vortex field layout units for {}", field_name),
+    return MakeBridgeErrorStatus(fmt::format("Failed to get vortex field layout units for {}", field_name),
                                  raw_offsets_result.status());
   }
   auto raw_offsets = std::move(raw_offsets_result).ValueOrDie();
@@ -429,7 +429,7 @@ arrow::Status VortexFooterReader::Impl::OpenSparseVortexFile() {
   auto result =
       VortexFile::OpenUnique(reinterpret_cast<uint8_t*>(fs_holder.get()), sparse_path, file_size, footer_size);
   if (!result.ok()) {
-    return MakeVortexErrorStatus(fmt::format("Failed to open vortex file {}", path), result.status());
+    return MakeBridgeErrorStatus(fmt::format("Failed to open vortex file {}", path), result.status());
   }
   vxfile = std::move(result).ValueOrDie();
   return arrow::Status::OK();
@@ -477,6 +477,7 @@ arrow::Status VortexFooterReader::Impl::LoadFooter(const std::shared_ptr<arrow::
       return MakeExtendErrorMsg(ExtendStatusCode::DataCorrupted,
                                 "Recorded vortex footer size is smaller than the actual footer");
     }
+
     return arrow::Status::IOError("Vortex footer exceeds the single-read window");
   }
   footer_size = actual_footer_size;
@@ -494,7 +495,7 @@ arrow::Status VortexFooterReader::Impl::LoadZoneMaps(const std::shared_ptr<arrow
 
   auto zone_segment_ids = vxfile->ZoneMapSegmentIds();
   if (!zone_segment_ids.ok()) {
-    return MakeVortexErrorStatus(fmt::format("Failed to load vortex zonemap segments {}", path),
+    return MakeBridgeErrorStatus(fmt::format("Failed to load vortex zonemap segments {}", path),
                                  zone_segment_ids.status());
   }
   ARROW_RETURN_NOT_OK(
@@ -506,7 +507,7 @@ arrow::Status VortexFooterReader::Impl::LoadZoneMaps(const std::shared_ptr<arrow
 arrow::Status VortexFooterReader::Impl::LoadFileSchema() {
   ArrowSchema c_schema;
   ARROW_RETURN_NOT_OK(
-      MakeVortexErrorStatus(fmt::format("Failed to get vortex file schema {}", path), vxfile->GetFileSchema(c_schema)));
+      MakeBridgeErrorStatus(fmt::format("Failed to get vortex file schema {}", path), vxfile->GetFileSchema(c_schema)));
   ARROW_ASSIGN_OR_RAISE(file_schema, arrow::ImportSchema(&c_schema));
   return arrow::Status::OK();
 }
@@ -627,7 +628,7 @@ arrow::Result<std::vector<uint64_t>> VortexFooterReader::PruneRowGroups(
 
   auto result = impl_->vxfile->PruneRowGroups(predicate, candidate_row_group_ids);
   if (!result.ok()) {
-    return MakeVortexErrorStatus("Failed to prune vortex row groups", result.status());
+    return MakeBridgeErrorStatus("Failed to prune vortex row groups", result.status());
   }
   return std::move(result).ValueOrDie();
 }

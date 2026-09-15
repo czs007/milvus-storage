@@ -21,12 +21,16 @@
 #include <cerrno>
 #include <string>
 
+#include <arrow/filesystem/localfs.h>
 #include <arrow/status.h>
 #include <arrow/util/io_util.h>
 #include <gtest/gtest.h>
 
-#include "bridge_error.h"
-#include "lance_bridge.h"
+#include "runtime/bridge_error.h"
+#include "lance/lance_bridge.h"
+#include "milvus-storage/common/config.h"
+#include "milvus-storage/filesystem/fs.h"
+#include "milvus-storage/format/lance/lance_common.h"
 #include "milvus-storage/common/extend_status.h"
 #include "milvus-storage/ffi_internal/ffi_error_code.h"
 #include "milvus-storage/ffi_internal/result.h"
@@ -34,7 +38,7 @@
 namespace milvus_storage::bridge {
 namespace {
 
-constexpr const char* kMarker = "__LOON_RUST_BRIDGE_ERRCODE__=";
+constexpr const char* kMarker = "__LOON_FFI_ERRCODE__=";
 
 // Code 12 is still decoded -- the vortex fork and the filesystem layer speak
 // the errno channel -- even though no bridge here emits it any more.
@@ -210,7 +214,12 @@ TEST(BridgeErrorTest, MarkerInExceptionTextDrivesClassification) {
 // back as a classified not-found (ENOENT detail -> ObjectNotExist), not as an
 // exception and not as an opaque IOError.
 TEST(LanceBridgeErrorTest, OpenNonexistentDatasetClassifiesNotFound) {
-  auto result = milvus_storage::lance::BlockingDataset::Open("/nonexistent-milvus-storage-test/lance-dataset");
+  auto filesystem = std::make_shared<FileSystemProxy>("/", std::make_shared<arrow::fs::LocalFileSystem>());
+  ArrowFileSystemConfig config;
+  config.storage_type = "local";
+  config.root_path = "/";
+  auto result = milvus_storage::lance::BlockingDataset::Open(
+      "/nonexistent-milvus-storage-test/lance-dataset", filesystem, milvus_storage::lance::ToReaderOptions(config));
   ASSERT_FALSE(result.ok());
   const auto& status = result.status();
   // Bridges report a missing object through the taxonomy channel, so that a

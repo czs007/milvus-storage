@@ -48,6 +48,7 @@ _PROPERTY_KEY_MAPPING = {
     "WRITER_COMPRESSION_LEVEL": "loon_properties_writer_compression_level",
     "WRITER_ENABLE_DICTIONARY": "loon_properties_writer_enable_dictionary",
     "WRITER_ENC_ENABLE": "loon_properties_writer_enc_enable",
+    # Standard padded Base64 of raw AES key bytes.
     "WRITER_ENC_KEY": "loon_properties_writer_enc_key",
     "WRITER_ENC_META": "loon_properties_writer_enc_meta",
     "WRITER_ENC_ALGORITHM": "loon_properties_writer_enc_algorithm",
@@ -56,8 +57,8 @@ _PROPERTY_KEY_MAPPING = {
     "READER_RECORD_BATCH_MAX_SIZE": "loon_properties_reader_record_batch_max_size",
     "READER_LOGICAL_CHUNK_ROWS": "loon_properties_reader_logical_chunk_rows",
     "READER_METADATA_CACHE_ENABLE": "loon_properties_reader_metadata_cache_enable",
+    "READER_EXTTABLE_SNAPSHOT_ID": "loon_properties_reader_exttable_snapshot_id",
     "PAIMON_SCAN_MODE": "loon_properties_paimon_scan_mode",
-    "PAIMON_SNAPSHOT_ID": "loon_properties_paimon_snapshot_id",
     "TRANSACTION_COMMIT_NUM_RETRIES": "loon_properties_transaction_commit_num_retries",
 }
 

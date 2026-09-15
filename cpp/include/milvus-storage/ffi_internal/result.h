@@ -97,8 +97,16 @@ inline int FFIErrorCodeFromExtendStatus(const arrow::Status& status, int fallbac
     return LOON_MEMORY_ERROR;
   }
 
-  if (arrow::internal::ErrnoFromStatus(status) == ENOENT) {
+  const auto error_number = arrow::internal::ErrnoFromStatus(status);
+  if (error_number == ENOENT) {
     return LOON_FILE_NOT_FOUND;
+  }
+  // A generic (errno-channel) permission failure is the same condition as an
+  // object store's access-denied answer: the deployment identity cannot use
+  // the location. It lands on the one storage code for that condition instead
+  // of a second, errno-only spelling.
+  if (error_number == EACCES || error_number == EPERM) {
+    return LOON_STORAGE_ACCESS_DENIED;
   }
 
   // NotImplemented has exactly one meaning everywhere in this library: the

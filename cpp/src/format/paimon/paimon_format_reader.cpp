@@ -33,7 +33,7 @@
 #include "milvus-storage/common/log.h"
 #include "milvus-storage/filesystem/fs.h"
 #include "milvus-storage/format/paimon/paimon_common.h"
-#include "paimon_bridge.h"
+#include "paimon/paimon_bridge.h"
 
 namespace milvus_storage::paimon {
 namespace {

@@ -1,4 +1,4 @@
-// Copyright 2023 Zilliz
+// Copyright 2025 Zilliz
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,21 +12,22 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// The lance writer and reader are APIs for the dataset level.
-// The current lance writer is only for testing purposes,
-// so the inner table will not be written in lance format.
-#ifdef BUILD_GTEST
-
 #pragma once
 
-#include <memory>
+#ifdef BUILD_GTEST
 
-#include "milvus-storage/common/config.h"
+#include <memory>
+#include <string>
+#include <vector>
+
+#include <arrow/record_batch.h>
+#include <arrow/result.h>
+#include <arrow/status.h>
+
 #include "milvus-storage/common/writer_status.h"
 #include "milvus-storage/format/format_writer.h"
-#include "milvus-storage/filesystem/fs.h"
-#include "milvus-storage/filesystem/ffi/filesystem_internal.h"
-#include "lance_bridge.h"  // from cpp/src/format/lance/lance-bridge/src/include
+#include "milvus-storage/properties.h"
+#include "lance/lance_bridge.h"
 
 namespace milvus_storage::lance {
 
@@ -62,12 +63,6 @@ class LanceTableWriter final : public FormatWriter {
   LanceDataStorageFormat data_storage_format_;
 
   std::vector<std::shared_ptr<arrow::RecordBatch>> record_batches_;
-  std::unique_ptr<BlockingDataset> dataset_;
-  std::vector<uint64_t> origin_fids_;
-  /// Whether this writer created the dataset because the open reported it
-  /// missing. Only used to explain the failure if that verdict turns out to
-  /// have been wrong.
-  bool created_dataset_ = false;
   WriterStatus writer_status_;
   int64_t written_rows_ = 0;
 };
