@@ -813,7 +813,12 @@ TEST(S3CrtBuildSupportTest, OpenInputFileUsesCrtBackedAsyncFileWhenCrtEnabled) {
   ASSERT_STATUS_OK(output_stream->Close());
 
   ASSERT_AND_ASSIGN(auto input_file, fs->OpenInputFile(object_path));
-  ASSERT_NE(dynamic_cast<milvus_storage::NonBlockingReadAtFile*>(input_file.get()), nullptr);
+  auto* async_file = dynamic_cast<milvus_storage::NonBlockingRandomAccessFile*>(input_file.get());
+  ASSERT_NE(async_file, nullptr);
+
+  auto size_result = async_file->GetSizeAsync().result();
+  ASSERT_STATUS_OK(size_result.status());
+  ASSERT_EQ(size_result.ValueOrDie(), static_cast<int64_t>(data.size()));
 
   auto async_result = input_file->ReadAsync({}, 2, 4).result();
   ASSERT_STATUS_OK(async_result.status());
@@ -869,7 +874,7 @@ TEST(S3CrtBuildSupportTest, InFlightNativeReadCompletesDuringFinalizeS3) {
       return fail(input_result.status().ToString());
     }
     auto input = std::move(input_result).ValueOrDie();
-    if (dynamic_cast<NonBlockingReadAtFile*>(input.get()) == nullptr) {
+    if (dynamic_cast<NonBlockingRandomAccessFile*>(input.get()) == nullptr) {
       return fail("OpenInputFile did not select the CRT async read path");
     }
 
@@ -957,7 +962,7 @@ TEST(S3CrtBuildSupportTest, AsyncReadCallbackCanReleaseLastFilesystemOwner) {
       return fail(input_result.status().ToString());
     }
     auto input = std::move(input_result).ValueOrDie();
-    auto* async_file = dynamic_cast<NonBlockingReadAtFile*>(input.get());
+    auto* async_file = dynamic_cast<NonBlockingRandomAccessFile*>(input.get());
     if (async_file == nullptr) {
       return fail("OpenInputFile did not select the CRT async read path");
     }
@@ -1023,7 +1028,7 @@ TEST(S3CrtBuildSupportTest, OpenInputFileUsesCrtBackedAsyncFileForNonGcpProvider
     ASSERT_AND_ASSIGN(auto fs, S3FileSystem::Make(options));
     ASSERT_AND_ASSIGN(auto input_file, fs->OpenInputFile("bucket/path/object.txt"));
 
-    EXPECT_NE(dynamic_cast<milvus_storage::NonBlockingReadAtFile*>(input_file.get()), nullptr);
+    EXPECT_NE(dynamic_cast<milvus_storage::NonBlockingRandomAccessFile*>(input_file.get()), nullptr);
   }
 }
 
@@ -1050,7 +1055,7 @@ TEST(S3CrtBuildSupportTest, ZeroLengthAsyncReadsDoNotScheduleIoExecutor) {
   arrow::fs::FileInfo file_info("bucket/path/object.txt", arrow::fs::FileType::File);
   file_info.set_size(1);
   ASSERT_AND_ASSIGN(auto input_file, fs->OpenInputFile(file_info));
-  auto* async_file = dynamic_cast<milvus_storage::NonBlockingReadAtFile*>(input_file.get());
+  auto* async_file = dynamic_cast<milvus_storage::NonBlockingRandomAccessFile*>(input_file.get());
   ASSERT_NE(async_file, nullptr);
 
   io_executor.drain();
@@ -1080,7 +1085,7 @@ TEST(S3CrtBuildSupportTest, OpenInputFileFallsBackToSdkFileForGcpProvider) {
   ASSERT_AND_ASSIGN(auto fs, S3FileSystem::Make(options));
   ASSERT_AND_ASSIGN(auto input_file, fs->OpenInputFile("bucket/path/object.txt"));
 
-  EXPECT_EQ(dynamic_cast<milvus_storage::NonBlockingReadAtFile*>(input_file.get()), nullptr);
+  EXPECT_EQ(dynamic_cast<milvus_storage::NonBlockingRandomAccessFile*>(input_file.get()), nullptr);
 }
 
 }  // namespace milvus_storage::test

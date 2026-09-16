@@ -33,6 +33,11 @@
     loon_errcode_storage_precondition_failed;
     loon_errcode_storage_not_found;
     loon_errcode_storage_access_denied;
+    loon_errcode_aws_no_such_upload;
+    loon_errcode_aws_conflict;
+    loon_errcode_aws_precondition_failed;
+    loon_errcode_aws_not_found;
+    loon_errcode_aws_access_denied;
     loon_errcode_transient_network;
     loon_errcode_transient_timeout;
     loon_errcode_transient_throttling;
@@ -44,11 +49,6 @@
     loon_errcode_storage_bucket_not_found;
     loon_errcode_vortex_data_format;
     loon_errcode_internal_invariant;
-    loon_errcode_aws_no_such_upload;
-    loon_errcode_aws_conflict;
-    loon_errcode_aws_precondition_failed;
-    loon_errcode_aws_not_found;
-    loon_errcode_aws_access_denied;
 
     # Properties interface
     loon_properties_create;
@@ -108,8 +108,8 @@
     loon_properties_reader_parquet_prebuffer_range_size_limit;
     loon_properties_reader_vortex_split_row_indices;
     loon_properties_reader_async_task_split_strategy;
+    loon_properties_reader_exttable_snapshot_id;
     loon_properties_paimon_scan_mode;
-    loon_properties_paimon_snapshot_id;
     loon_properties_transaction_commit_num_retries;
 
     # Writer interface
@@ -189,6 +189,7 @@
     loon_filesystem_writer_close;
     loon_filesystem_writer_destroy;
     loon_filesystem_get_file_info;
+    loon_filesystem_get_object_info;
     loon_filesystem_read_file;
     loon_filesystem_open_reader;
     loon_filesystem_reader_readat;

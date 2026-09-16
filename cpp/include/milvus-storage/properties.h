@@ -100,6 +100,12 @@ struct PropertyInfo {
 #define PROPERTY_FS_IOPS_INITIAL_RATE "fs.iops_initial_rate"
 #define PROPERTY_FS_IOPS_MAX_RATE "fs.iops_max_rate"
 
+// talon properties
+#define PROPERTY_FS_TALON_ENABLED "fs.talon.enabled"
+#define PROPERTY_FS_TALON_COORDINATOR "fs.talon.coordinator"
+#define PROPERTY_FS_TALON_BLOCK_SIZE "fs.talon.block_size"
+#define PROPERTY_FS_TALON_MAX_IDLE_PER_ADDR "fs.talon.max_idle_per_addr"
+
 // Cross-tenant access properties
 #define PROPERTY_FS_GCP_TARGET_SERVICE_ACCOUNT "fs.gcp_target_service_account"
 #define PROPERTY_FS_AZURE_CLIENT_ID "fs.azure_client_id"
@@ -164,12 +170,11 @@ struct PropertyInfo {
 #define PROPERTY_READER_VORTEX_SPLIT_ROW_INDICES "reader.vortex.split_row_indices"
 #define PROPERTY_READER_ASYNC_TASK_SPLIT_STRATEGY "reader.async.task_split_strategy"
 
-// --- Define Iceberg property keys ---
-#define PROPERTY_ICEBERG_SNAPSHOT_ID "iceberg.snapshot_id"
+// --- Define external table common property keys ---
+#define PROPERTY_READER_EXTTABLE_SNAPSHOT_ID "reader.exttable.snapshot_id"
 
 // --- Define Paimon property keys ---
 #define PROPERTY_PAIMON_SCAN_MODE "paimon.scan_mode"
-#define PROPERTY_PAIMON_SNAPSHOT_ID "paimon.snapshot_id"
 
 // --- Define Transaction property keys ---
 #define PROPERTY_TRANSACTION_COMMIT_NUM_RETRIES "transaction.commit.num-retries"

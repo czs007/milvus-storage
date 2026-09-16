@@ -17,7 +17,7 @@
 #include "milvus-storage/filesystem/fs.h"
 #include "milvus-storage/format/paimon/paimon_common.h"
 #include "milvus-storage/format/paimon/paimon_format_reader.h"
-#include "paimon_bridge.h"
+#include "paimon/paimon_bridge.h"
 
 namespace milvus_storage {
 
@@ -25,7 +25,7 @@ arrow::Result<std::vector<api::ColumnGroupFile>> PaimonFormat::explore(const std
                                                                        const api::Properties& properties) {
   ARROW_ASSIGN_OR_RAISE(auto fs_config, FilesystemCache::resolve_config(properties, explore_dir));
   ARROW_ASSIGN_OR_RAISE(auto scan_mode, api::GetValue<std::string>(properties, PROPERTY_PAIMON_SCAN_MODE));
-  ARROW_ASSIGN_OR_RAISE(auto snapshot_id, api::GetValue<int64_t>(properties, PROPERTY_PAIMON_SNAPSHOT_ID));
+  ARROW_ASSIGN_OR_RAISE(auto snapshot_id, api::GetValue<int64_t>(properties, PROPERTY_READER_EXTTABLE_SNAPSHOT_ID));
   auto table_location = paimon::ToStandardUri(explore_dir);
 
   ARROW_ASSIGN_OR_RAISE(auto storage_options, paimon::ToStorageOptions(fs_config));
