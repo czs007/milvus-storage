@@ -45,7 +45,6 @@
 #include <arrow/filesystem/path_util.h>
 
 #include <arrow/result.h>
-#include <arrow/util/checked_cast.h>
 #include <arrow/util/formatting.h>
 #include <arrow/util/future.h>
 #include <arrow/util/key_value_metadata.h>
@@ -1025,7 +1024,7 @@ class ObjectInputFile final : public io::RandomAccessFile {
       }
       RETURN_NOT_OK(CacheContentLengthFromRead(result.Value));
       return bytes_read;
-    } catch (const Storage::StorageException& exception) {
+    } catch (const Azure::Core::RequestFailedException& exception) {
       return ExceptionToStatus(
           exception, "DownloadTo from '", blob_client_->GetUrl(), "' at position ",
           position, " for ", nbytes,
@@ -1095,7 +1094,7 @@ class ObjectInputFile final : public io::RandomAccessFile {
       }
       SetCachedContentLength(content_length);
       return Status::OK();
-    } catch (const Storage::StorageException& exception) {
+    } catch (const Azure::Core::RequestFailedException& exception) {
       if (exception.StatusCode == Http::HttpStatusCode::NotFound) {
         return PathNotFound(location_);
       }
@@ -3555,8 +3554,9 @@ bool AzureFileSystem::Equals(const FileSystem& other) const {
   if (other.type_name() != type_name()) {
     return false;
   }
-  const auto& azure_fs = ::arrow::internal::checked_cast<const AzureFileSystem&>(other);
-  return options().Equals(azure_fs.options());
+  // Decorators such as Talon can preserve the provider name without sharing its type.
+  const auto* azure_fs = dynamic_cast<const AzureFileSystem*>(&other);
+  return azure_fs != nullptr && options().Equals(azure_fs->options());
 }
 
 Result<FileInfo> AzureFileSystem::GetFileInfo(const std::string& path) {
