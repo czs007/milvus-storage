@@ -732,7 +732,10 @@ TEST(VortexFooterRangeTest, WrongSizedBridgeResultIsInternal) {
     ASSERT_FALSE(range.ok()) << "size " << bytes.size();
     EXPECT_EQ(ExtendStatusDetail::UnwrapStatus(range.status()), nullptr)
         << "size " << bytes.size() << ": " << range.status().ToString();
-    EXPECT_EQ(ToSegcoreError(range.status()).get_error_code(), milvus::StorageError)
+    // A bare Invalid still takes the historical persisted-data fallback in
+    // ToSegcoreError; the public-API safety layer removes that mapping and this
+    // expectation becomes StorageError there.
+    EXPECT_EQ(ToSegcoreError(range.status()).get_error_code(), milvus::DataFormatBroken)
         << "size " << bytes.size() << ": " << range.status().ToString();
   }
 }
@@ -855,7 +858,7 @@ TEST_F(VortexLocalFormatTest, VortexInvalidTrailerFailsClosedWithoutClaimingCorr
   // not leak the internal marker.
   EXPECT_EQ(ExtendStatusDetail::UnwrapStatus(status), nullptr) << status.ToString();
   EXPECT_EQ(ToSegcoreError(status).get_error_code(), milvus::StorageError) << status.ToString();
-  EXPECT_EQ(status.ToString().find("__LOON_RUST_BRIDGE_ERRCODE__"), std::string::npos) << status.ToString();
+  EXPECT_EQ(status.ToString().find("__LOON_FFI_ERRCODE__"), std::string::npos) << status.ToString();
 }
 
 // A corrupt file must not be able to kill the process.

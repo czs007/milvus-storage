@@ -232,7 +232,7 @@ TEST_F(PackedErrorStatusTest, FileRowGroupReaderMissingFieldIdsIsStatusNotAbort)
   // hit the missing-field-id condition, and report it as a status.
   auto result = FileRowGroupReader::Make(fs_, no_fid_path);
   ASSERT_FALSE(result.ok());
-  EXPECT_TRUE(result.status().IsInvalid()) << result.status().ToString();
+  ExpectPackedCode(result.status(), ExtendStatusCode::PackedMetadataCorrupted);
   EXPECT_NE(result.status().ToString().find("field"), std::string::npos) << result.status().ToString();
 }
 

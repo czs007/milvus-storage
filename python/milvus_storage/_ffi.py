@@ -27,7 +27,6 @@ _ERROR_CODE_SYMBOLS = (
     "loon_errcode_aws_precondition_failed",
     "loon_errcode_aws_not_found",
     "loon_errcode_aws_access_denied",
-    "loon_errcode_aws_non_retryable",
     "loon_errcode_transient_network",
     "loon_errcode_transient_timeout",
     "loon_errcode_transient_throttling",
@@ -108,7 +107,6 @@ _ffi.cdef(
     extern int loon_errcode_aws_precondition_failed;
     extern int loon_errcode_aws_not_found;
     extern int loon_errcode_aws_access_denied;
-    extern int loon_errcode_aws_non_retryable;
     extern int loon_errcode_transient_network;
     extern int loon_errcode_transient_timeout;
     extern int loon_errcode_transient_throttling;
@@ -185,8 +183,8 @@ _ffi.cdef(
     extern const char* loon_properties_reader_record_batch_max_size;
     extern const char* loon_properties_reader_logical_chunk_rows;
     extern const char* loon_properties_reader_metadata_cache_enable;
+    extern const char* loon_properties_reader_exttable_snapshot_id;
     extern const char* loon_properties_paimon_scan_mode;
-    extern const char* loon_properties_paimon_snapshot_id;
     extern const char* loon_properties_transaction_commit_num_retries;
 
     // ==================== ColumnGroups C Interface ====================

@@ -12,25 +12,44 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-mod aliyun_oss_provider;
-mod aws_arn_provider;
-mod azure_sas_provider;
+#[path = "runtime/bridge_error.rs"]
 mod bridge_error;
-mod cloud_provider_cache;
-mod gcp_impersonation;
+#[path = "filesystem/filesystem_opendal.rs"]
+mod filesystem_opendal;
+#[path = "iceberg/iceberg_opendal.rs"]
+mod iceberg_opendal;
+#[path = "iceberg/iceberg_bridgeimpl.rs"]
 mod iceberg_bridgeimpl;
+#[path = "iceberg/iceberg_testutil.rs"]
 mod iceberg_testutil;
+#[path = "lance/lance_bridgeimpl.rs"]
 mod lance_bridgeimpl;
+#[path = "lance/lance_memory_estimator.rs"]
 mod lance_memory_estimator;
+#[path = "lance/lance_object_store.rs"]
+mod lance_object_store;
+#[path = "paimon/paimon_bridgeimpl.rs"]
 mod paimon_bridgeimpl;
+#[path = "paimon/paimon_split_serde.rs"]
 mod paimon_split_serde;
+#[path = "paimon/paimon_testutil.rs"]
 mod paimon_testutil;
+#[path = "vortex/predicate_parser.rs"]
 mod predicate_parser;
+#[path = "runtime/rust_runtime.rs"]
 mod rust_runtime;
+#[cfg(feature = "talon")]
+#[path = "talon/talon_bridge.rs"]
+mod talon_bridge;
+#[path = "vortex/vortex_bridgeimpl.rs"]
 mod vortex_bridgeimpl;
+#[path = "vortex/vortex_layout_strategy_v2.rs"]
 mod vortex_layout_strategy_v2;
 
+#[path = "filesystem/filesystem_c.rs"]
 mod filesystem_c;
+#[path = "filesystem/filesystem_object_store.rs"]
+mod filesystem_object_store;
 use iceberg_bridgeimpl::*;
 use iceberg_testutil::*;
 use lance_bridgeimpl::*;
@@ -77,6 +96,21 @@ pub mod rust_runtime_ffi {
 
 #[cxx::bridge(namespace = "milvus_storage::lance::ffi")]
 pub mod lance_ffi {
+    unsafe extern "C++" {
+        include!("milvus-storage/filesystem/ffi/filesystem_internal.h");
+
+        // Lance may share one ScanScheduler across datasets. The scheduler
+        // retains the ObjectStore created by the first dataset, so a
+        // reader-owned C++ filesystem holder cannot keep that ObjectStore's
+        // wrapper address valid after the originating dataset is destroyed.
+        // Pass an opaque shared lease instead, allowing the Rust ObjectStore
+        // and scheduler to retain the exact FileSystemWrapper they use.
+        // Vortex's reader-local holder is sufficient because it does not have
+        // this cross-dataset scheduler ownership path.
+        #[namespace = ""]
+        type FileSystemWrapper;
+    }
+
     /// Lance data storage format
     #[repr(u8)]
     #[derive(Debug, Clone, Copy)]
@@ -107,22 +141,40 @@ pub mod lance_ffi {
         /// ObjectStore captured from the dataset that created that scheduler. This
         /// method therefore must not be interpreted as per-dataset accounting.
         pub fn io_stats_incremental(self: &BlockingDataset) -> LanceIOStats;
+        /// Open the latest Dataset when version is zero, or the exact snapshot
+        /// identified by a non-zero version.
         pub fn open_dataset(
+            filesystem: SharedPtr<FileSystemWrapper>,
             uri: &str,
             storage_options_keys: Vec<String>,
             storage_options_values: Vec<String>,
+            version: u64,
         ) -> Result<Box<BlockingDataset>>;
+        /// Resolve only the latest manifest location and return its version.
+        /// This does not load or decode the manifest, construct a Dataset, or
+        /// initialize a ScanScheduler.
+        pub fn resolve_latest_dataset_version(
+            filesystem: SharedPtr<FileSystemWrapper>,
+            uri: &str,
+            storage_options_keys: Vec<String>,
+            storage_options_values: Vec<String>,
+        ) -> Result<u64>;
         pub unsafe fn write_dataset(
             uri: &str,
             stream_ptr: *mut u8,
             storage_options_keys: Vec<String>,
             storage_options_values: Vec<String>,
             data_storage_format: LanceDataStorageFormat,
-        ) -> Result<Box<BlockingDataset>>;
+        ) -> Result<Vec<u64>>;
+        pub fn delete_rows(
+            uri: &str,
+            predicate: &str,
+            storage_options_keys: Vec<String>,
+            storage_options_values: Vec<String>,
+        ) -> Result<()>;
 
-        pub unsafe fn write_stream(self: &mut BlockingDataset, stream_ptr: *mut u8) -> Result<()>;
+        pub fn version(self: &BlockingDataset) -> u64;
         pub fn get_all_fragment_ids(self: &BlockingDataset) -> Vec<u64>;
-        pub fn dataset_delete_rows(dataset: &mut BlockingDataset, predicate: &str) -> Result<()>;
         pub fn get_fragment_deletion_positions(
             dataset: &BlockingDataset,
             fragment_id: u64,
@@ -137,8 +189,10 @@ pub mod lance_ffi {
             dataset: &BlockingDataset,
             fragment_id: u64,
         ) -> Result<Vec<LanceColumnMemoryEstimate>>;
-        pub fn estimate_fragment_memory(dataset: &BlockingDataset, fragment_id: u64)
-        -> Result<u64>;
+        pub fn estimate_fragment_memory(
+            dataset: &BlockingDataset,
+            fragment_id: u64,
+        ) -> Result<u64>;
         pub unsafe fn get_fragment_schema(
             dataset: &BlockingDataset,
             fragment_id: u64,
@@ -203,6 +257,11 @@ pub mod lance_ffi {
 
     }
 } // mod lance_ffi
+
+// FileSystemWrapper is immutable after construction. Its shared Arrow
+// filesystem is already used concurrently by C++ format readers.
+unsafe impl Send for lance_ffi::FileSystemWrapper {}
+unsafe impl Sync for lance_ffi::FileSystemWrapper {}
 
 #[cxx::bridge(namespace = "milvus_storage::paimon::ffi")]
 pub mod paimon_ffi {
@@ -274,11 +333,6 @@ pub mod paimon_test_ffi {
         ) -> Result<PaimonTestTableInfo>;
     }
 }
-
-// Classified errors cross the cxx boundary inside the error message: the Rust
-// side embeds the code with the universal marker prefix, and the C++ decoder
-// (bridge_error.h) parses and strips it. One channel, no side state -- see
-// bridge_error.rs for why a thread-local side channel was retired.
 
 #[cxx::bridge(namespace = "milvus_storage::vortex::ffi")]
 pub mod vortex_ffi {
@@ -456,6 +510,12 @@ pub mod vortex_ffi {
 
 #[cxx::bridge(namespace = "milvus_storage::iceberg::ffi")]
 pub mod iceberg_ffi {
+    unsafe extern "C++" {
+        #[namespace = ""]
+        #[cxx_name = "FileSystemWrapper"]
+        type IcebergFileSystemWrapper = crate::lance_ffi::FileSystemWrapper;
+    }
+
     /// Per-file info returned from plan_files.
     struct IcebergFileInfo {
         /// Absolute data file URI from Iceberg metadata
@@ -477,10 +537,11 @@ pub mod iceberg_ffi {
         /// which handles snapshot resolution, delete file association,
         /// sequence number filtering, and partition matching.
         fn iceberg_plan_files(
+            filesystem: SharedPtr<IcebergFileSystemWrapper>,
             metadata_location: &str,
             snapshot_id: i64,
-            storage_options_keys: Vec<String>,
-            storage_options_values: Vec<String>,
+            read_option_keys: Vec<String>,
+            read_option_values: Vec<String>,
         ) -> Result<Vec<IcebergFileInfo>>;
     }
 }

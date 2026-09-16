@@ -26,7 +26,7 @@
 #include <parquet/arrow/writer.h>
 
 #include "milvus-storage/common/config.h"
-#include "bridge_error.h"
+#include "runtime/bridge_error.h"
 #include "milvus-storage/common/extend_status.h"
 #include "milvus-storage/filesystem/fs.h"
 #include "milvus-storage/format/column_group_reader.h"
@@ -36,7 +36,7 @@
 #include "milvus-storage/format/paimon/paimon_format_reader.h"
 #include "milvus-storage/properties.h"
 #include "milvus-storage/reader.h"
-#include "paimon_bridge.h"
+#include "paimon/paimon_bridge.h"
 #include "test_env.h"
 
 namespace milvus_storage::test {
@@ -286,7 +286,8 @@ TEST_F(PaimonIntegrationTest, VortexDeletionVectorUsesDirectFile) {
 TEST_F(PaimonIntegrationTest, ReadsSpecifiedSnapshot) {
   constexpr uint64_t kRows = 9;
   ASSERT_AND_ASSIGN(auto snapshot_id, paimon::CreateTestTable(table_dir_, kRows, "append"));
-  ASSERT_EQ(api::SetValue(properties_, PROPERTY_PAIMON_SNAPSHOT_ID, std::to_string(snapshot_id).c_str()), std::nullopt);
+  ASSERT_EQ(api::SetValue(properties_, PROPERTY_READER_EXTTABLE_SNAPSHOT_ID, std::to_string(snapshot_id).c_str()),
+            std::nullopt);
 
   ASSERT_AND_ASSIGN(auto files, Explore("auto"));
   ASSERT_FALSE(files.empty());
@@ -313,7 +314,8 @@ TEST_F(PaimonIntegrationTest, ScanOptionsAreValidatedForLatestAndPinnedSnapshots
   EXPECT_TRUE(files.status().IsNotImplemented()) << files.status().ToString();
   EXPECT_NE(files.status().ToString().find("scan.watermark"), std::string::npos);
 
-  ASSERT_EQ(api::SetValue(properties_, PROPERTY_PAIMON_SNAPSHOT_ID, std::to_string(snapshot_id).c_str()), std::nullopt);
+  ASSERT_EQ(api::SetValue(properties_, PROPERTY_READER_EXTTABLE_SNAPSHOT_ID, std::to_string(snapshot_id).c_str()),
+            std::nullopt);
   files = Explore("auto");
   ASSERT_FALSE(files.ok());
   EXPECT_TRUE(files.status().IsNotImplemented()) << files.status().ToString();
@@ -937,31 +939,28 @@ TEST_F(PaimonIntegrationTest, MissingTableFailsAndWriterIsReadOnly) {
 }
 
 TEST(PaimonBridgeErrorClassification, MarkersMapToArrowStatuses) {
-  auto config_invalid =
-      milvus_storage::bridge::MakeBridgeErrorStatus("__LOON_RUST_BRIDGE_ERRCODE__=115; invalid metadata");
+  auto config_invalid = milvus_storage::bridge::MakeBridgeErrorStatus("__LOON_FFI_ERRCODE__=115; invalid metadata");
   EXPECT_TRUE(config_invalid.IsInvalid());
   auto config_detail = ExtendStatusDetail::UnwrapStatus(config_invalid);
   ASSERT_NE(config_detail, nullptr) << config_invalid.ToString();
   EXPECT_EQ(config_detail->code(), ExtendStatusCode::StorageConfigInvalid);
-  EXPECT_TRUE(milvus_storage::bridge::MakeBridgeErrorStatus(
-                  "__LOON_RUST_BRIDGE_ERRCODE__=1002; direct-file does not support orc")
-                  .IsNotImplemented());
+  EXPECT_TRUE(
+      milvus_storage::bridge::MakeBridgeErrorStatus("__LOON_FFI_ERRCODE__=1002; direct-file does not support orc")
+          .IsNotImplemented());
 
-  auto not_found = milvus_storage::bridge::MakeBridgeErrorStatus("__LOON_RUST_BRIDGE_ERRCODE__=104; missing object");
+  auto not_found = milvus_storage::bridge::MakeBridgeErrorStatus("__LOON_FFI_ERRCODE__=104; missing object");
   EXPECT_TRUE(not_found.IsIOError());
   auto not_found_detail = ExtendStatusDetail::UnwrapStatus(not_found);
   ASSERT_NE(not_found_detail, nullptr) << not_found.ToString();
   EXPECT_EQ(not_found_detail->code(), ExtendStatusCode::StorageNotFound);
   EXPECT_EQ(ToSegcoreError(not_found).get_error_code(), milvus::ObjectNotExist);
 
-  auto transient =
-      milvus_storage::bridge::MakeBridgeErrorStatus("__LOON_RUST_BRIDGE_ERRCODE__=109; object store rate limit");
+  auto transient = milvus_storage::bridge::MakeBridgeErrorStatus("__LOON_FFI_ERRCODE__=109; object store rate limit");
   auto detail = ExtendStatusDetail::UnwrapStatus(transient);
   ASSERT_NE(detail, nullptr);
   EXPECT_EQ(detail->code(), ExtendStatusCode::StorageTransientThrottling);
 
-  transient =
-      milvus_storage::bridge::MakeBridgeErrorStatus("__LOON_RUST_BRIDGE_ERRCODE__=110; object store unavailable");
+  transient = milvus_storage::bridge::MakeBridgeErrorStatus("__LOON_FFI_ERRCODE__=110; object store unavailable");
   detail = ExtendStatusDetail::UnwrapStatus(transient);
   ASSERT_NE(detail, nullptr);
   EXPECT_EQ(detail->code(), ExtendStatusCode::StorageTransientService);
@@ -970,8 +969,8 @@ TEST(PaimonBridgeErrorClassification, MarkersMapToArrowStatuses) {
 }
 
 TEST(PaimonBridgeErrorClassification, StreamReaderTranslatesReadNextNotFound) {
-  auto inner = std::make_shared<FailingRecordBatchReader>(
-      arrow::Status::IOError("__LOON_RUST_BRIDGE_ERRCODE__=104; missing object"));
+  auto inner =
+      std::make_shared<FailingRecordBatchReader>(arrow::Status::IOError("__LOON_FFI_ERRCODE__=104; missing object"));
   auto reader = paimon::internal::WrapPaimonRecordBatchReader(std::move(inner), arrow::schema({}));
 
   std::shared_ptr<arrow::RecordBatch> batch;
@@ -983,12 +982,12 @@ TEST(PaimonBridgeErrorClassification, StreamReaderTranslatesReadNextNotFound) {
   ASSERT_NE(detail, nullptr) << status.ToString();
   EXPECT_EQ(detail->code(), ExtendStatusCode::StorageNotFound);
   EXPECT_EQ(ToSegcoreError(status).get_error_code(), milvus::ObjectNotExist) << status.ToString();
-  EXPECT_EQ(status.ToString().find("__LOON_RUST_BRIDGE_ERRCODE__="), std::string::npos);
+  EXPECT_EQ(status.ToString().find("__LOON_FFI_ERRCODE__="), std::string::npos);
 }
 
 TEST(PaimonBridgeErrorClassification, StreamReaderTranslatesReadNextThrottling) {
   auto inner = std::make_shared<FailingRecordBatchReader>(
-      arrow::Status::IOError("__LOON_RUST_BRIDGE_ERRCODE__=109; object store rate limit"));
+      arrow::Status::IOError("__LOON_FFI_ERRCODE__=109; object store rate limit"));
   auto reader = paimon::internal::WrapPaimonRecordBatchReader(std::move(inner), arrow::schema({}));
 
   std::shared_ptr<arrow::RecordBatch> batch;
@@ -998,7 +997,7 @@ TEST(PaimonBridgeErrorClassification, StreamReaderTranslatesReadNextThrottling) 
   ASSERT_NE(detail, nullptr) << status.ToString();
   EXPECT_EQ(detail->code(), ExtendStatusCode::StorageTransientThrottling);
   EXPECT_TRUE(detail->retryable());
-  EXPECT_EQ(status.ToString().find("__LOON_RUST_BRIDGE_ERRCODE__="), std::string::npos);
+  EXPECT_EQ(status.ToString().find("__LOON_FFI_ERRCODE__="), std::string::npos);
 }
 
 TEST_F(PaimonIntegrationTest, DataSplitMissingObjectPreservesErrno) {
@@ -1041,13 +1040,14 @@ TEST_F(PaimonIntegrationTest, DataSplitMissingObjectPreservesErrno) {
   ASSERT_NE(detail, nullptr) << status.ToString();
   EXPECT_EQ(detail->code(), ExtendStatusCode::StorageNotFound) << status.ToString();
   EXPECT_EQ(ToSegcoreError(status).get_error_code(), milvus::ObjectNotExist) << status.ToString();
-  EXPECT_EQ(status.ToString().find("__LOON_RUST_BRIDGE_ERRCODE__="), std::string::npos);
+  EXPECT_EQ(status.ToString().find("__LOON_FFI_ERRCODE__="), std::string::npos);
 }
 
 TEST_F(PaimonIntegrationTest, MissingPinnedSnapshotFailsPlanAsNotFoundWithRefresh) {
   ASSERT_AND_ASSIGN(auto snapshot_id, paimon::CreateTestTable(table_dir_, 10, "append"));
-  ASSERT_EQ(api::SetValue(properties_, PROPERTY_PAIMON_SNAPSHOT_ID, std::to_string(snapshot_id + 1000).c_str()),
-            std::nullopt);
+  ASSERT_EQ(
+      api::SetValue(properties_, PROPERTY_READER_EXTTABLE_SNAPSHOT_ID, std::to_string(snapshot_id + 1000).c_str()),
+      std::nullopt);
 
   auto files = Explore("auto");
   ASSERT_FALSE(files.ok());

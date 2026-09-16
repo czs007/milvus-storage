@@ -14,7 +14,7 @@
 
 #include "milvus-storage/format/iceberg/iceberg_format_reader.h"
 #include "milvus-storage/common/extend_status.h"
-#include "bridge_error.h"
+#include "runtime/bridge_error.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -115,8 +115,8 @@ arrow::Status ReadPositionalDeleteFile(const std::string& delete_file_path,
 
   // Normalize data_file_uri to scheme://bucket/key for matching.
   // data_file_uri may be in Milvus format (scheme://address/bucket/key),
-  // while the delete file's file_path column may use ABFSS opendal format
-  // (abfss://container@endpoint/key). MilvusURIToIcebergURI normalizes both
+  // while the delete file's file_path column may use an Azure URI alias with
+  // a recorded endpoint. MilvusURIToIcebergURI normalizes both
   // to the same scheme://bucket/key form.
   auto normalized_data_uri = MilvusURIToIcebergURI(data_file_uri);
 
@@ -141,7 +141,7 @@ arrow::Status ReadPositionalDeleteFile(const std::string& delete_file_path,
         std::string row_file_path(file_path_array->GetView(row));
         // Match by: 1) exact match with original URI,
         //           2) direct match after Milvus address stripping (S3/GCS),
-        //           3) match after ABFSS @endpoint stripping (Azure).
+        //           3) match after Azure @endpoint stripping.
         if (row_file_path == data_file_uri || row_file_path == normalized_data_uri ||
             StripAbfssEndpoint(row_file_path) == normalized_data_uri) {
           const auto position = pos_array->Value(row);

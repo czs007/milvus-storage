@@ -97,8 +97,14 @@ inline int FFIErrorCodeFromExtendStatus(const arrow::Status& status, int fallbac
     return LOON_MEMORY_ERROR;
   }
 
-  if (arrow::internal::ErrnoFromStatus(status) == ENOENT) {
+  const auto error_number = arrow::internal::ErrnoFromStatus(status);
+  if (error_number == ENOENT) {
     return LOON_FILE_NOT_FOUND;
+  }
+  // EACCES/EPERM from the filesystem layer travel as the one access-denied
+  // code of the taxonomy; there is no separate errno-only permission code.
+  if (error_number == EACCES || error_number == EPERM) {
+    return LOON_STORAGE_ACCESS_DENIED;
   }
 
   // NotImplemented has exactly one meaning everywhere in this library: the
